@@ -1,0 +1,76 @@
+/* TODO: replace with your own styling — kept minimal on purpose */
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --text: #1d2330;
+  --muted: #6b7280;
+  --accent: #2563eb;
+  --danger: #dc2626;
+  --border: #e5e7eb;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 { margin: 0; font-size: 1.4rem; }
+.user { display: flex; align-items: center; gap: 0.75rem; }
+
+main, #loading { max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+
+form { display: flex; gap: 0.5rem; }
+input[type="text"], input:not([type]) {
+  flex: 1;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+button, .button {
+  padding: 0.6rem 1rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+button.secondary, .button.secondary { background: #e0e7ff; color: var(--accent); }
+button.danger { background: #fee2e2; color: var(--danger); }
+button.small { padding: 0.3rem 0.6rem; font-size: 0.85rem; }
+
+ul { list-style: none; padding: 0; margin: 1.5rem 0; }
+li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+li .title { flex: 1; word-break: break-word; }
+li.done .title { text-decoration: line-through; color: var(--muted); }
+
+.rust { display: flex; align-items: center; gap: 1rem; margin-top: 2rem; }
+.muted { color: var(--muted); }
+.error { color: var(--danger); }

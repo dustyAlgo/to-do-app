@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>To-Do</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>To-Do</h1>
+    <div class="user" id="user" hidden>
+      <span>Logged in as <strong id="username"></strong></span>
+      <a href="/api/auth/logout" class="button secondary">Logout</a>
+    </div>
+  </header>
+
+  <main id="app" hidden>
+    <form id="new-todo" autocomplete="off">
+      <input id="title" name="title" maxlength="255" placeholder="What needs doing?" required>
+      <button type="submit">Add</button>
+    </form>
+
+    <p id="error" class="error" role="alert" hidden></p>
+
+    <ul id="todos"></ul>
+    <p id="empty" class="muted" hidden>No todos yet.</p>
+
+    <section class="rust">
+      <button id="call-rust" type="button" class="secondary">Call Rust API</button>
+      <output id="rust-out"></output>
+    </section>
+  </main>
+
+  <p id="loading" class="muted">Loading…</p>
+
+  <script src="app.js"></script>
+</body>
+</html>

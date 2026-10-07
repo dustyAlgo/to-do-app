@@ -1,0 +1,56 @@
+# Stage 1: app database + FastAPI middleware + frontend only.
+# Keycloak, edge nginx and rust-api are added in later steps (full target: implementation.md).
+#
+# On the VM:  cp .env.example .env && chmod 600 .env   (fill in PUBLIC_HOST and APP_DB_PASSWORD)
+#             docker compose up -d --build
+name: todo
+
+services:
+  app-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: todos
+      POSTGRES_USER: todos
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
+    volumes:
+      - app_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U todos -d todos"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: ./api
+    image: ${ECR_REGISTRY:-local}/todo/api:${IMAGE_TAG:-dev}
+    restart: unless-stopped
+    environment:
+      PUBLIC_BASE_URL: http://${PUBLIC_HOST:?set PUBLIC_HOST}
+      OIDC_REALM: todo
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080/auth  # not running yet: login fails until the Keycloak step
+      OIDC_CLIENT_ID: todo-app
+      OIDC_CLIENT_SECRET: ${TODO_APP_CLIENT_SECRET:-not-configured-yet}
+      API_AUDIENCE: todo-api
+      DATABASE_URL: postgresql+psycopg://todos:${APP_DB_PASSWORD}@app-db:5432/todos
+      RUST_API_URL: http://rust-api:8080  # not running yet: /api/rust returns 502 until the Rust step
+    ports:
+      - "127.0.0.1:8000:8000" # VM-local only, for curl checks; the edge nginx will front it later
+    depends_on:
+      app-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build: ./frontend
+    image: ${ECR_REGISTRY:-local}/todo/frontend:${IMAGE_TAG:-dev}
+    restart: unless-stopped
+    ports:
+      - "80:80" # temporary: moves behind the edge nginx in the Keycloak step
+
+volumes:
+  app_db_data:
