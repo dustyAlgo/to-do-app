@@ -1,11 +1,66 @@
-# Stage 1: app database + FastAPI middleware + frontend only.
-# Keycloak, edge nginx and rust-api are added in later steps (full target: implementation.md).
-#
-# On the VM:  cp .env.example .env && chmod 600 .env   (fill in PUBLIC_HOST and APP_DB_PASSWORD)
-#             docker compose up -d --build
+# Full stack on one VM. Variables come from .env (see .env.example).
+#  - Now (speedrun):          docker compose up -d --build        → builds images on the VM (tag local/...:dev)
+#  - Later (CI/CD, deferred): docker compose pull && up --no-build → ECR images, tag from deploy.env
 name: todo
 
 services:
+  # ---------------------------------------------------------------- upstream IdP
+  keycloak-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  keycloak:
+    # TODO: pin to the exact 26.x patch release you test with
+    image: quay.io/keycloak/keycloak:26.0.7
+    restart: unless-stopped
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_HTTP_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HTTP_MANAGEMENT_RELATIVE_PATH: /
+      KC_HOSTNAME: http://${PUBLIC_HOST:?set PUBLIC_HOST}/auth
+      KC_HOSTNAME_ADMIN: http://localhost:8080/auth
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
+      # substituted into realm-todo.json (${...} placeholders) on first import
+      PUBLIC_HOST: ${PUBLIC_HOST}
+      TODO_APP_CLIENT_SECRET: ${TODO_APP_CLIENT_SECRET:?set TODO_APP_CLIENT_SECRET}
+      TODO_E2E_CLIENT_SECRET: ${TODO_E2E_CLIENT_SECRET:?set TODO_E2E_CLIENT_SECRET}
+      ALICE_PASSWORD: ${ALICE_PASSWORD:?set ALICE_PASSWORD}
+      BOB_PASSWORD: ${BOB_PASSWORD:?set BOB_PASSWORD}
+    volumes:
+      - ./keycloak/realm-todo.json:/opt/keycloak/data/import/realm-todo.json:ro
+    ports:
+      - "127.0.0.1:8080:8080" # admin console via SSH tunnel only
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      # image has no curl: probe the management port (9000) with bash /dev/tcp
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.1 200' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # ---------------------------------------------------------------- app
   app-db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -26,31 +81,47 @@ services:
     image: ${ECR_REGISTRY:-local}/todo/api:${IMAGE_TAG:-dev}
     restart: unless-stopped
     environment:
-      PUBLIC_BASE_URL: http://${PUBLIC_HOST:?set PUBLIC_HOST}
+      PUBLIC_BASE_URL: http://${PUBLIC_HOST}
       OIDC_REALM: todo
-      KEYCLOAK_INTERNAL_URL: http://keycloak:8080/auth  # not running yet: login fails until the Keycloak step
+      KEYCLOAK_INTERNAL_URL: http://keycloak:8080/auth
       OIDC_CLIENT_ID: todo-app
-      OIDC_CLIENT_SECRET: ${TODO_APP_CLIENT_SECRET:-not-configured-yet}
+      OIDC_CLIENT_SECRET: ${TODO_APP_CLIENT_SECRET}
       API_AUDIENCE: todo-api
       DATABASE_URL: postgresql+psycopg://todos:${APP_DB_PASSWORD}@app-db:5432/todos
-      RUST_API_URL: http://rust-api:8080  # not running yet: /api/rust returns 502 until the Rust step
-    ports:
-      - "127.0.0.1:8000:8000" # VM-local only, for curl checks; the edge nginx will front it later
+      RUST_API_URL: http://rust-api:8080
     depends_on:
       app-db:
         condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      rust-api:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 10
 
+  rust-api:
+    build: ./rust-api
+    image: ${ECR_REGISTRY:-local}/todo/rust-api:${IMAGE_TAG:-dev}
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
     image: ${ECR_REGISTRY:-local}/todo/frontend:${IMAGE_TAG:-dev}
     restart: unless-stopped
+
+  # ---------------------------------------------------------------- edge
+  nginx:
+    build: ./nginx
+    image: ${ECR_REGISTRY:-local}/todo/nginx:${IMAGE_TAG:-dev}
+    restart: unless-stopped
     ports:
-      - "80:80" # temporary: moves behind the edge nginx in the Keycloak step
+      - "80:80"
+    # no depends_on: upstreams are resolved per request, so nginx can start alone
+    # (returns 502 for a route until that service is up)
 
 volumes:
+  keycloak_db_data:
   app_db_data:
